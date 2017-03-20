@@ -17,22 +17,24 @@
 package org.alfresco.extensions.bulkexport.dao;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.InputStream;
 import java.io.Serializable;
-import java.io.File;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.Collection;
-import java.util.Iterator;
 
 import org.alfresco.model.ContentModel;
 import org.alfresco.repo.action.ActionModel;
 import org.alfresco.repo.publishing.PublishingModel;
 import org.alfresco.service.ServiceRegistry;
+import org.alfresco.service.cmr.dictionary.DataTypeDefinition;
+import org.alfresco.service.cmr.dictionary.DictionaryService;
 import org.alfresco.service.cmr.model.FileFolderService;
 import org.alfresco.service.cmr.model.FileInfo;
 import org.alfresco.service.cmr.repository.ChildAssociationRef;
@@ -42,17 +44,15 @@ import org.alfresco.service.cmr.repository.NodeRef;
 import org.alfresco.service.cmr.repository.NodeService;
 import org.alfresco.service.cmr.repository.Path;
 import org.alfresco.service.cmr.security.PermissionService;
-import org.alfresco.service.cmr.version.VersionService;
-import org.alfresco.service.cmr.version.VersionType;
-import org.alfresco.service.cmr.version.VersionHistory;
 import org.alfresco.service.cmr.version.Version;
+import org.alfresco.service.cmr.version.VersionHistory;
+import org.alfresco.service.cmr.version.VersionService;
 import org.alfresco.service.namespace.NamespacePrefixResolver;
 import org.alfresco.service.namespace.QName;
-
-import com.ibm.icu.text.SimpleDateFormat;
-
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+
+import com.ibm.icu.text.SimpleDateFormat;
 
 
 /**
@@ -75,6 +75,7 @@ public class AlfrescoExportDaoImpl implements AlfrescoExportDao
     private final ContentService contentService;
     private final PermissionService permissionService;
     private final VersionService versionService;
+    private final DictionaryService dictionaryService;
         
     private QName ignoreAspectQname[] = 
     {
@@ -92,7 +93,8 @@ public class AlfrescoExportDaoImpl implements AlfrescoExportDao
             ContentModel.PROP_NODE_UUID, 
             ContentModel.PROP_CATEGORIES,
             ContentModel.PROP_CONTENT,
-            ContentModel.ASPECT_TAGGABLE
+            ContentModel.ASPECT_TAGGABLE,
+            ContentModel.PROP_VERSION_LABEL
     };
     
     private String[] ignorePropertyPrefix = 
@@ -128,6 +130,7 @@ public class AlfrescoExportDaoImpl implements AlfrescoExportDao
         contentService = this.registry.getContentService();
         permissionService = this.registry.getPermissionService();
         versionService = this.registry.getVersionService();
+        dictionaryService = this.registry.getDictionaryService();
     }
     
     
@@ -146,7 +149,9 @@ public class AlfrescoExportDaoImpl implements AlfrescoExportDao
      */
     public Map<String, String> getPropertiesAsString(NodeRef nodeRef) throws Exception 
     {
-                
+               
+    	log.debug("nodeRef=" + nodeRef);
+    	
         Map<QName, Serializable> properties = this.getProperties(nodeRef);
         
         Map<String, String> props = new HashMap<String, String>();
@@ -154,24 +159,45 @@ public class AlfrescoExportDaoImpl implements AlfrescoExportDao
         
         for (QName qName : qNameSet) 
         {
+        	log.debug("qName=" + qName);
             //case the qname is in ignored type do nothing will do.
             if(this.isPropertyIgnored(qName))
             {
+            	log.debug("ignored");
                 continue;
             }
-                    
+            
             Serializable obj = properties.get(qName);
+            if (obj == null) {
+            	log.debug("skip: property value is null");
+            	continue;
+            }
+            
+            if (this.isCategoryDataType(qName)) {
+            	log.debug("skip: property data type is d:category");
+            	continue;
+            }
+
+            if (obj instanceof NodeRef) {
+            	log.debug("skip: property value is NodeRef");
+            	continue;
+            }
+
             String name = this.getQnameStringFormat(qName);
-            String value = this.formatMetadata(obj);
+        	String value = this.formatMetadata(obj);
         
             //put key value in the property list as <prefixOfProperty:nameOfProperty, valueOfProperty>
+            log.debug(name + "=" + value);
             props.put(name, value);
         }
         
         return props;
     }
-
     
+    private boolean isCategoryDataType(QName propertyQName) {
+        return DataTypeDefinition.CATEGORY.equals(dictionaryService.getProperty(propertyQName).getDataType().getName());
+    }
+
     /**
      * @see com.alfresco.bulkexport.dao.AlfrescoExportDao#getChildren(java.lang.String)
      */
@@ -286,7 +312,7 @@ public class AlfrescoExportDaoImpl implements AlfrescoExportDao
         return out;
     }
 
-    public boolean getContentAndStoreInFile(NodeRef nodeRef, String outputFileName) throws Exception 
+    public boolean getContentAndStoreInFile(NodeRef nodeRef, String outputFileName, String... revision) throws Exception 
     {
         ContentReader reader = contentService.getReader(nodeRef, ContentModel.PROP_CONTENT);
         if (reader == null)
@@ -295,7 +321,12 @@ public class AlfrescoExportDaoImpl implements AlfrescoExportDao
             return false;
         }
        
-        File output = new File(outputFileName);
+        File output = null;
+        if (revision.length == 0) {
+        	output = new File(outputFileName);
+        } else {
+        	output = new File(outputFileName + ".v" + revision[0]);
+        }
         reader.getContent(output);
 
         return true;
@@ -439,6 +470,8 @@ public class AlfrescoExportDaoImpl implements AlfrescoExportDao
                     nodes.put(vlabel, revision);
                     //
                     // we need to get the comment history as well because this is not available when we get content data and properties....
+                    log.debug("vlabel =" + vlabel);
+                    log.debug("revision = " + revision.node + "," + revision.comment);
                     log.debug("getNodeRefHistory(nodeRef) v = " + v.toString());
             }
         }
@@ -575,15 +608,15 @@ public class AlfrescoExportDaoImpl implements AlfrescoExportDao
         {
             if(obj instanceof Date)
             {
-                SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'hh:mm:ss.SSSZ");
+                SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
                 
                 Date date = (Date) obj;
                 returnValue = format.format(date);
                 returnValue = returnValue.substring(0, 26) + ":" + returnValue.substring(26);
-            } 
-            else 
+            }
+            else
             {
-                
+            	
                 //
                 // TODO: Format data to all bulk-import data format (list as example)
                 //
@@ -594,4 +627,11 @@ public class AlfrescoExportDaoImpl implements AlfrescoExportDao
         
         return returnValue;
     }
+
+
+	@Override
+	public String getNamespace(NodeRef nodeRef) throws Exception {
+		return nodeService.getType(nodeRef).getNamespaceURI();
+	}
+
 }

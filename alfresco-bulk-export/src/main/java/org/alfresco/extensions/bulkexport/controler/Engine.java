@@ -16,13 +16,16 @@
  */
 package org.alfresco.extensions.bulkexport.controler;
 
-import java.io.ByteArrayOutputStream;
-
-import java.util.List;
-import java.util.Map;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.io.*;
+import java.util.List;
+import java.util.Map;
 
 import org.alfresco.extensions.bulkexport.dao.AlfrescoExportDao;
 import org.alfresco.extensions.bulkexport.dao.NodeRefRevision;
@@ -195,7 +198,7 @@ public class Engine
     private void exportFullRevisionHistory(NodeRef nodeRef) throws Exception
     {
         Map<String,NodeRefRevision> nodes = this.dao.getNodeRefHistory(nodeRef.toString());
-        if (nodes != null)
+        if (nodes != null && nodes.size() > 1)
         {
             List sortedKeys=new ArrayList(nodes.keySet());
 
@@ -206,10 +209,13 @@ public class Engine
             }
 
             String headRevision = (String)sortedKeys.get(sortedKeys.size()-1);
+            log.debug("headRevision=" + headRevision);
 
             for (String revision : nodes.keySet()) 
             {
+            	log.debug("key=" + revision);
                 NodeRefRevision nodeRevision = nodes.get(revision);
+                log.debug("nodeRevision=" + nodeRevision.node + "," + nodeRevision.comment);
                 this.createFile(nodeRef, nodeRevision.node, revision, headRevision == revision);
             }
         }
@@ -267,6 +273,7 @@ public class Engine
      */
     private void createFile(NodeRef headNode, NodeRef file, String revision, boolean isHeadRevision) throws Exception 
     {
+    	log.debug("isHeadRevision=" + isHeadRevision);
         String path = null;
         if (revision == null)
         {
@@ -274,15 +281,17 @@ public class Engine
             throw new Exception("revision for node was not found");
         }
 
-        path = this.dao.getPath(headNode) + "." + revision;
+        path = this.dao.getPath(headNode);
 
         // if we are exporting using the revisions compatible with alfresco bulk import then we do not number the head(most recent) revisoon
         if (!revisionHead && isHeadRevision)
         {
             path = this.dao.getPath(headNode);
+            doCreateFile(file, path);
+        } else {
+        	doCreateFile(file, path, revision);
         }
 
-        doCreateFile(file, path);
     }
 
     private void createFile(NodeRef file) throws Exception 
@@ -292,10 +301,10 @@ public class Engine
         doCreateFile(file, path);
     }
 
-    private void doCreateFile(NodeRef file, String path) throws Exception 
+    private void doCreateFile(NodeRef file, String path, String... revision) throws Exception 
     {
         //get Informations
-        log.debug("doCreateFile (noderef)");
+        log.debug("doCreateFile (noderef=" + file.toString() + ")");
 
         // need these variables out of the try scope for debugging purposes when the exception is thrown
         String type = null;
@@ -304,9 +313,9 @@ public class Engine
 
         try
         {
-            String fname = this.fileFolder.createFullPath(path);
-            log.debug("doCreateFile file =" + fname);
-            if (this.dao.getContentAndStoreInFile(file, fname) == false)
+        	String fname = this.fileFolder.createFullPath(path);
+        	log.debug("doCreateFile file =" + fname);
+            if (this.dao.getContentAndStoreInFile(file, fname, revision) == false)
             {
                 log.debug("doCreateFile ignore this file"); 
                 return;
@@ -315,8 +324,10 @@ public class Engine
             aspects = this.dao.getAspectsAsString(file);
             properties = this.dao.getPropertiesAsString(file);
             
+            String namespace = this.dao.getNamespace(file);
+            
             //Create Files
-            this.fileFolder.insertFileProperties(type, aspects, properties, path);
+            this.fileFolder.insertFileProperties(type, aspects, namespace, properties, path, revision);
             type = null;
             properties = null;
             aspects = null;
@@ -346,9 +357,11 @@ public class Engine
         log.debug("createFolder type="+type);
         List<String> aspects = this.dao.getAspectsAsString(folder);
         Map<String, String> properties = this.dao.getPropertiesAsString(folder);
+
+        String namespace = this.dao.getNamespace(folder);
         
         //Create Folder and XMl Metadata
         this.fileFolder.createFolder(path);
-        this.fileFolder.insertFileProperties(type, aspects, properties, path);
+        this.fileFolder.insertFileProperties(type, aspects, namespace, properties, path);
     }
 }

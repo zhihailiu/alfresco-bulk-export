@@ -95,7 +95,7 @@ public interface AlfrescoExportDao
      * @return {@link ByteArrayOutputStream}
      * @throws Exception
      */
-    public boolean getContentAndStoreInFile(NodeRef nodeRef, String outputFileName) throws Exception; 
+    public boolean getContentAndStoreInFile(NodeRef nodeRef, String outputFileName, String... revision) throws Exception; 
     
     /**
      * Method to get specific property
@@ -127,6 +127,14 @@ public interface AlfrescoExportDao
      */
     public List<QName> getAspects(NodeRef nodeRef) throws Exception;
     
+    /**
+     * Method to get node namespace
+     *
+     * @param nodeRef Alfresco Node Reference
+     * @return {@link String}
+     * @throws Exception
+     */
+    public String getNamespace(NodeRef nodeRef) throws Exception;
     
     /**
      * Method to get a {@link List} of aspects in {@link String} format

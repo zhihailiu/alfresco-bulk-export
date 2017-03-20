@@ -20,12 +20,12 @@ import java.io.BufferedWriter;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.extensions.webscripts.WebScriptResponse;
@@ -154,9 +154,14 @@ public class FileFolder
      * @return {@link String} Name of file
      * @throws Exception
      */
-    private String createXmlFile(String filePath) throws Exception 
+    private String createXmlFile(String filePath, String... revision) throws Exception 
     {
-        String fp = filePath + ".metadata.properties.xml";
+    	String fp = null;
+    	if (revision.length == 0) {
+    		fp = filePath + ".metadata.properties.xml";
+    	} else {
+    		fp = filePath + ".metadata.properties.xml.v" + revision[0];
+    	}
         
         this.createFile(fp);
         
@@ -254,23 +259,30 @@ public class FileFolder
      * @param filePath The path of file
      * @throws Exception
      */
-    public void insertFileProperties(String type, List<String> aspects,Map<String, String> properties, String filePath) throws Exception
+    public void insertFileProperties(String type, List<String> aspects, String namespace, Map<String, String> properties, String filePath, String... revision) throws Exception
     {
         filePath = this.basePath + filePath;
         
-        if(this.isFileExist(filePath) && this.isFileExist(filePath + ".metadata.properties.xml") && this.scapeExported)
-        {
-            return;
-        }
-        
+		if (revision.length == 0) {
+			if (this.isFileExist(filePath) && this.isFileExist(filePath + ".metadata.properties.xml")
+					&& this.scapeExported) {
+				return;
+			}
+		} else {
+			if (this.isFileExist(filePath) && this.isFileExist(filePath + ".metadata.properties.xml.v" + revision[0])
+					&& this.scapeExported) {
+				return;
+			}
+		}        
         
         String header = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE properties SYSTEM \"http://java.sun.com/dtd/properties.dtd\">\n<properties>";
         String footer = "\n</properties>";
         
         String tType = "<entry key=\"type\">" + type + "</entry>";
         String tAspect = "<entry key=\"aspects\">" + this.formatAspects(aspects) + "</entry>";
+        String tNamespace = "<entry key=\"namespace\">" + namespace + "</entry>";
         
-        String text = "\n\t" + tType + "\n\t" + tAspect;
+        String text = "\n\t" + tType + "\n\t" + tAspect + "\n\t" + tNamespace;
         
         Set<String> set = properties.keySet();
         
@@ -288,7 +300,7 @@ public class FileFolder
         
         try 
         {
-            String fp = this.createXmlFile(filePath);
+            String fp = this.createXmlFile(filePath, revision);
             File file = new File(fp);
             
 //            FileWriter fw = new FileWriter(file.getAbsoluteFile());
